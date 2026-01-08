@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab Listrik Pro: 360 Rotation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="sidebar">
+        <h3>Smart Lab 5.0</h3>
+        <p><small>Tarik komponen ke area kerja. Gunakan bulatan di atas benda untuk memutar.</small></p>
+        <div class="tool" draggable="true" ondragstart="drag(event)" data-type="battery">🔋 Baterai</div>
+        <div class="tool" draggable="true" ondragstart="drag(event)" data-type="bulb">💡 Lampu</div>
+        <div class="tool" draggable="true" ondragstart="drag(event)" data-type="switch">🔌 Saklar</div>
+        <div class="tool" draggable="true" ondragstart="drag(event)" data-type="wire">➖ Kabel</div>
+        <hr>
+        <div class="status-box">
+            <p>Arus: <span id="flow-status">Terputus</span></p>
+        </div>
+        <button id="reset-btn" onclick="location.reload()">🔄 Reset Lab</button>
+    </div>
+
+    <div class="main-canvas" id="canvas" ondrop="drop(event)" ondragover="allowDrop(event)">
+        <div class="grid-layer"></div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
