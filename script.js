@@ -1,13 +1,13 @@
 /**
- * LAB LISTRIK PRO - FINAL ENGINE FIXED
+ * LAB LISTRIK PRO - LOGIKA KONEKSI PRESISI
  */
 const CONFIG = {
     snapSize: 100,
     threshold: 60,
-    touchTolerance: 105 // Jarak maksimal komponen dianggap bersentuhan
+    touchTolerance: 110 // Batas maksimal jarak antar pusat komponen
 };
 
-// State: Drag & Drop Handlers
+// Handlers untuk Drag and Drop
 const allowDrop = (e) => e.preventDefault();
 const drag = (e) => e.dataTransfer.setData("type", e.target.getAttribute("data-type"));
 
@@ -21,9 +21,6 @@ function drop(e) {
     createComponent(type, x, y);
 }
 
-/**
- * KOMPONEN BUILDER
- */
 function createComponent(type, x, y) {
     const id = `comp_${Date.now()}`;
     const div = document.createElement('div');
@@ -31,7 +28,6 @@ function createComponent(type, x, y) {
     div.id = id;
     div.dataset.type = type;
     div.dataset.state = (type === 'switch') ? 'off' : 'on';
-    div.dataset.rotation = 0;
 
     const icons = { battery: '🔋', bulb: '💡', switch: '🔌', wire: '➖' };
     
@@ -48,12 +44,9 @@ function createComponent(type, x, y) {
 
     initDraggable(div);
     initRotatable(div);
-    updatePhysics(); // Cek arus setiap ada benda baru
+    updatePhysics(); 
 }
 
-/**
- * LOGIKA INTERAKSI & GERAK
- */
 window.toggleSwitch = (id) => {
     const el = document.getElementById(id);
     const btn = el.querySelector('.switch-btn');
@@ -77,13 +70,13 @@ function initDraggable(el) {
             let nX = e.clientX - shiftX - cRect.left;
             let nY = e.clientY - shiftY - cRect.top;
 
-            // Snapping logic
+            // Magnet Snapping
             const others = document.querySelectorAll('.placed-comp');
             el.classList.remove('snapped');
             others.forEach(other => {
                 if (other === el) return;
-                const ox = parseInt(other.style.left);
-                const oy = parseInt(other.style.top);
+                const ox = parseFloat(other.style.left);
+                const oy = parseFloat(other.style.top);
                 if (Math.abs(nX - ox) < CONFIG.threshold && Math.abs(nY - oy) < 30) {
                     nY = oy; nX = (nX > ox) ? ox + CONFIG.snapSize : ox - CONFIG.snapSize;
                     el.classList.add('snapped');
@@ -93,6 +86,7 @@ function initDraggable(el) {
                 }
             });
             el.style.left = `${nX}px`; el.style.top = `${nY}px`;
+            updatePhysics(); // Cek arus real-time saat digeser
         }
 
         document.addEventListener('mousemove', move);
@@ -103,7 +97,6 @@ function initDraggable(el) {
             document.onmouseup = null;
         };
     };
-    // Hapus dengan klik kanan
     el.oncontextmenu = (e) => { e.preventDefault(); el.remove(); updatePhysics(); };
 }
 
@@ -118,7 +111,7 @@ function initRotatable(el) {
             const rad = Math.atan2(ev.clientX - cx, -(ev.clientY - cy));
             const deg = Math.round(rad * (180 / Math.PI));
             el.style.transform = `rotate(${deg}deg)`;
-            el.dataset.rotation = deg;
+            updatePhysics();
         };
         document.addEventListener('mousemove', onRotate);
         document.addEventListener('mouseup', () => {
@@ -129,73 +122,66 @@ function initRotatable(el) {
 }
 
 /**
- * PHYSICS ENGINE: LOGIKA KONEKSI KETAT
+ * LOGIKA FISIKA: BFS DENGAN CEK JARAK PUSAT (CENTER-TO-CENTER)
  */
 function updatePhysics() {
-    const allComps = Array.from(document.querySelectorAll('.placed-comp'));
+    const comps = Array.from(document.querySelectorAll('.placed-comp'));
     
-    // 1. Reset Semua Lampu (Matikan Dulu)
-    allComps.forEach(c => {
-        if(c.dataset.type === 'bulb') c.classList.remove('bulb-on');
-    });
+    // Matikan semua lampu dulu
+    comps.forEach(c => { if(c.dataset.type === 'bulb') c.classList.remove('bulb-on'); });
 
-    const batteries = allComps.filter(c => c.dataset.type === 'battery');
+    const batteries = comps.filter(c => c.dataset.type === 'battery');
     if (batteries.length === 0) return setStatusUI(false);
 
-    // 2. Breadth-First Search (BFS) dari sumber Baterai
     let energized = new Set();
     let queue = [...batteries];
-    
-    // Tandai baterai sebagai sumber energi awal
     batteries.forEach(b => energized.add(b.id));
 
     while (queue.length > 0) {
         let current = queue.shift();
         
-        allComps.forEach(target => {
-            // Jika target belum dialiri DAN target menyentuh komponen yang sedang dicek
-            if (!energized.has(target.id) && checkCollision(current, target)) {
-                
-                // Cek hambatan (Saklar OFF)
-                if (target.dataset.type === 'switch' && target.dataset.state === 'off') {
-                    // Listrik berhenti di sini, jangan masukkan ke queue
-                } else {
-                    energized.add(target.id);
-                    queue.push(target);
+        comps.forEach(target => {
+            if (!energized.has(target.id)) {
+                // Gunakan deteksi jarak Euclidean antar pusat komponen
+                if (isConnectable(current, target)) {
+                    if (target.dataset.type === 'switch' && target.dataset.state === 'off') {
+                        // Aliran terhenti di saklar mati
+                    } else {
+                        energized.add(target.id);
+                        queue.push(target);
+                    }
                 }
             }
         });
     }
 
-    // 3. Visualisasikan Hasil
-    let isAnyBulbOn = false;
+    let lightOn = false;
     energized.forEach(id => {
-        const comp = document.getElementById(id);
-        if (comp && comp.dataset.type === 'bulb') {
-            comp.classList.add('bulb-on');
-            isAnyBulbOn = true;
+        const el = document.getElementById(id);
+        if (el && el.dataset.type === 'bulb') {
+            el.classList.add('bulb-on');
+            lightOn = true;
         }
     });
-
-    setStatusUI(isAnyBulbOn);
+    setStatusUI(lightOn);
 }
 
-// Fungsi deteksi sentuhan antar komponen
-function checkCollision(el1, el2) {
-    const x1 = parseInt(el1.style.left);
-    const y1 = parseInt(el1.style.top);
-    const x2 = parseInt(el2.style.left);
-    const y2 = parseInt(el2.style.top);
+function isConnectable(el1, el2) {
+    // Ambil koordinat pusat (center) masing-masing elemen
+    const r1 = el1.getBoundingClientRect();
+    const r2 = el2.getBoundingClientRect();
+    
+    const center1 = { x: r1.left + r1.width / 2, y: r1.top + r1.height / 2 };
+    const center2 = { x: r2.left + r2.width / 2, y: r2.top + r2.height / 2 };
 
-    const dx = Math.abs(x1 - x2);
-    const dy = Math.abs(y1 - y2);
+    // Hitung jarak antar pusat (Euclidean Distance)
+    const distance = Math.sqrt(
+        Math.pow(center1.x - center2.x, 2) + 
+        Math.pow(center1.y - center2.y, 2)
+    );
 
-    // Komponen dianggap tersambung jika jaraknya pas (snapped) atau bersentuhan tipis
-    // Horizontal (Seri) atau Vertikal (Paralel)
-    const isTouchingX = dx <= CONFIG.touchTolerance && dy < 10;
-    const isTouchingY = dy <= CONFIG.touchTolerance && dx < 10;
-
-    return isTouchingX || isTouchingY;
+    // Jarak 100-110px berarti mereka menempel pas (karena ukuran komponen 100px)
+    return distance < CONFIG.touchTolerance;
 }
 
 function setStatusUI(active) {
