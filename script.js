@@ -1,16 +1,13 @@
 /**
- * LAB LISTRIK PRO - ENGINE
+ * LAB LISTRIK PRO - FINAL ENGINE FIXED
  */
-const LAB_CONFIG = {
+const CONFIG = {
     snapSize: 100,
     threshold: 60,
-    touchTolerance: 105
+    touchTolerance: 105 // Jarak maksimal komponen dianggap bersentuhan
 };
 
-// State Management
-let components = [];
-
-// Drag & Drop Handlers
+// State: Drag & Drop Handlers
 const allowDrop = (e) => e.preventDefault();
 const drag = (e) => e.dataTransfer.setData("type", e.target.getAttribute("data-type"));
 
@@ -19,10 +16,8 @@ function drop(e) {
     const canvas = document.getElementById('canvas');
     const rect = canvas.getBoundingClientRect();
     const type = e.dataTransfer.getData("type");
-    
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    
     createComponent(type, x, y);
 }
 
@@ -48,43 +43,30 @@ function createComponent(type, x, y) {
     `;
 
     document.getElementById('canvas').appendChild(div);
-    
-    // Posisikan di tengah kursor
     div.style.left = `${x - 50}px`;
     div.style.top = `${y - 50}px`;
 
     initDraggable(div);
     initRotatable(div);
-    
-    // Hapus dengan klik kanan
-    div.oncontextmenu = (e) => {
-        e.preventDefault();
-        div.remove();
-        updatePhysics();
-    };
-
-    updatePhysics();
+    updatePhysics(); // Cek arus setiap ada benda baru
 }
 
 /**
- * LOGIKA INTERAKSI
+ * LOGIKA INTERAKSI & GERAK
  */
 window.toggleSwitch = (id) => {
     const el = document.getElementById(id);
     const btn = el.querySelector('.switch-btn');
     const newState = el.dataset.state === 'off' ? 'on' : 'off';
-    
     el.dataset.state = newState;
     btn.innerText = newState.toUpperCase();
     btn.classList.toggle('switch-on', newState === 'on');
-    
     updatePhysics();
 };
 
 function initDraggable(el) {
     el.onmousedown = function(e) {
         if (e.target.closest('.switch-btn') || e.target.closest('.rotate-handle')) return;
-        
         el.style.zIndex = 1000;
         const shiftX = e.clientX - el.getBoundingClientRect().left;
         const shiftY = e.clientY - el.getBoundingClientRect().top;
@@ -95,28 +77,22 @@ function initDraggable(el) {
             let nX = e.clientX - shiftX - cRect.left;
             let nY = e.clientY - shiftY - cRect.top;
 
-            // Magnet Snapping Logic
+            // Snapping logic
             const others = document.querySelectorAll('.placed-comp');
             el.classList.remove('snapped');
-
             others.forEach(other => {
                 if (other === el) return;
                 const ox = parseInt(other.style.left);
                 const oy = parseInt(other.style.top);
-
-                if (Math.abs(nX - ox) < LAB_CONFIG.threshold && Math.abs(nY - oy) < 30) {
-                    nY = oy;
-                    nX = (nX > ox) ? ox + LAB_CONFIG.snapSize : ox - LAB_CONFIG.snapSize;
+                if (Math.abs(nX - ox) < CONFIG.threshold && Math.abs(nY - oy) < 30) {
+                    nY = oy; nX = (nX > ox) ? ox + CONFIG.snapSize : ox - CONFIG.snapSize;
                     el.classList.add('snapped');
-                } else if (Math.abs(nY - oy) < LAB_CONFIG.threshold && Math.abs(nX - ox) < 30) {
-                    nX = ox;
-                    nY = (nY > oy) ? oy + LAB_CONFIG.snapSize : oy - LAB_CONFIG.snapSize;
+                } else if (Math.abs(nY - oy) < CONFIG.threshold && Math.abs(nX - ox) < 30) {
+                    nX = ox; nY = (nY > oy) ? oy + CONFIG.snapSize : oy - CONFIG.snapSize;
                     el.classList.add('snapped');
                 }
             });
-
-            el.style.left = `${nX}px`;
-            el.style.top = `${nY}px`;
+            el.style.left = `${nX}px`; el.style.top = `${nY}px`;
         }
 
         document.addEventListener('mousemove', move);
@@ -127,6 +103,8 @@ function initDraggable(el) {
             document.onmouseup = null;
         };
     };
+    // Hapus dengan klik kanan
+    el.oncontextmenu = (e) => { e.preventDefault(); el.remove(); updatePhysics(); };
 }
 
 function initRotatable(el) {
@@ -151,68 +129,79 @@ function initRotatable(el) {
 }
 
 /**
- * PHYSICS ENGINE (ALIRAN LISTRIK)
+ * PHYSICS ENGINE: LOGIKA KONEKSI KETAT
  */
 function updatePhysics() {
-    const comps = Array.from(document.querySelectorAll('.placed-comp'));
+    const allComps = Array.from(document.querySelectorAll('.placed-comp'));
     
-    // Reset visual
-    comps.forEach(c => { if(c.dataset.type === 'bulb') c.classList.remove('bulb-on'); });
+    // 1. Reset Semua Lampu (Matikan Dulu)
+    allComps.forEach(c => {
+        if(c.dataset.type === 'bulb') c.classList.remove('bulb-on');
+    });
 
-    const batteries = comps.filter(c => c.dataset.type === 'battery');
-    if (batteries.length === 0) return setFlowInfo(false);
+    const batteries = allComps.filter(c => c.dataset.type === 'battery');
+    if (batteries.length === 0) return setStatusUI(false);
 
-    // Algoritma Penjalaran Arus (Breadth-First Search)
-    let powered = new Set();
+    // 2. Breadth-First Search (BFS) dari sumber Baterai
+    let energized = new Set();
     let queue = [...batteries];
-    batteries.forEach(b => powered.add(b.id));
+    
+    // Tandai baterai sebagai sumber energi awal
+    batteries.forEach(b => energized.add(b.id));
 
     while (queue.length > 0) {
-        let curr = queue.shift();
+        let current = queue.shift();
         
-        comps.forEach(next => {
-            if (!powered.has(next.id) && areLinked(curr, next)) {
-                // Arus hanya lewat jika komponen bukan saklar OFF
-                if (next.dataset.type === 'switch' && next.dataset.state === 'off') {
-                    // Blokir arus
+        allComps.forEach(target => {
+            // Jika target belum dialiri DAN target menyentuh komponen yang sedang dicek
+            if (!energized.has(target.id) && checkCollision(current, target)) {
+                
+                // Cek hambatan (Saklar OFF)
+                if (target.dataset.type === 'switch' && target.dataset.state === 'off') {
+                    // Listrik berhenti di sini, jangan masukkan ke queue
                 } else {
-                    powered.add(next.id);
-                    queue.push(next);
+                    energized.add(target.id);
+                    queue.push(target);
                 }
             }
         });
     }
 
-    let lightOn = false;
-    powered.forEach(id => {
-        const el = document.getElementById(id);
-        if (el && el.dataset.type === 'bulb') {
-            el.classList.add('bulb-on');
-            lightOn = true;
+    // 3. Visualisasikan Hasil
+    let isAnyBulbOn = false;
+    energized.forEach(id => {
+        const comp = document.getElementById(id);
+        if (comp && comp.dataset.type === 'bulb') {
+            comp.classList.add('bulb-on');
+            isAnyBulbOn = true;
         }
     });
 
-    setFlowInfo(lightOn);
+    setStatusUI(isAnyBulbOn);
 }
 
-function areLinked(a, b) {
-    const ax = parseInt(a.style.left);
-    const ay = parseInt(a.style.top);
-    const bx = parseInt(b.style.left);
-    const by = parseInt(b.style.top);
+// Fungsi deteksi sentuhan antar komponen
+function checkCollision(el1, el2) {
+    const x1 = parseInt(el1.style.left);
+    const y1 = parseInt(el1.style.top);
+    const x2 = parseInt(el2.style.left);
+    const y2 = parseInt(el2.style.top);
 
-    const dx = Math.abs(ax - bx);
-    const dy = Math.abs(ay - by);
+    const dx = Math.abs(x1 - x2);
+    const dy = Math.abs(y1 - y2);
 
-    // Cek kontak fisik berdasarkan ukuran snap
-    return (dx <= LAB_CONFIG.touchTolerance && dy < 20) || 
-           (dy <= LAB_CONFIG.touchTolerance && dx < 20);
+    // Komponen dianggap tersambung jika jaraknya pas (snapped) atau bersentuhan tipis
+    // Horizontal (Seri) atau Vertikal (Paralel)
+    const isTouchingX = dx <= CONFIG.touchTolerance && dy < 10;
+    const isTouchingY = dy <= CONFIG.touchTolerance && dx < 10;
+
+    return isTouchingX || isTouchingY;
 }
 
-function setFlowInfo(active) {
+function setStatusUI(active) {
     const info = document.getElementById('flow-status');
     if (info) {
-        info.innerText = active ? "AKTIF ⚡" : "MATI";
+        info.innerText = active ? "AKTIF ⚡" : "TERPUTUS";
         info.style.color = active ? "#00ff88" : "#ff4757";
     }
 }
