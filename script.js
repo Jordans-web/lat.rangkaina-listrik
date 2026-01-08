@@ -1,18 +1,20 @@
-/** * KONFIGURASI 
+/**
+ * CONFIGURATION
  */
 const CONFIG = {
     snapThreshold: 60,
-    compSize: 100
+    compSize: 100, // Ukuran kotak komponen
+    touchBuffer: 105 // Jarak maksimal antar komponen untuk dianggap terhubung
 };
 
 /**
- * UTILITY FUNCTIONS
+ * CORE STATE
  */
 const allowDrop = (ev) => ev.preventDefault();
 const drag = (ev) => ev.dataTransfer.setData("type", ev.target.getAttribute("data-type"));
 
 /**
- * CORE LOGIC
+ * INITIALIZATION
  */
 function drop(ev) {
     ev.preventDefault();
@@ -20,6 +22,7 @@ function drop(ev) {
     const canvas = document.getElementById('canvas');
     const rect = canvas.getBoundingClientRect();
     
+    // Posisi mouse relatif terhadap canvas
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
     
@@ -33,12 +36,12 @@ function createComponent(type, x, y) {
     div.id = id;
     div.dataset.type = type;
     div.dataset.rotation = 0;
-    div.dataset.state = "off";
+    div.dataset.state = (type === 'switch') ? 'off' : 'on';
 
     const icons = { battery: '🔋', bulb: '💡', switch: '🔌', wire: '➖' };
     
     div.innerHTML = `
-        <div class="rotate-handle"></div>
+        <div class="rotate-handle" title="Putar 360°"></div>
         <div class="comp-icon">${icons[type]}</div>
         <div class="comp-label">${type.toUpperCase()}</div>
         ${type === 'switch' ? `<button class="switch-btn" onclick="toggleSwitch('${id}')">OFF</button>` : ''}
@@ -46,15 +49,14 @@ function createComponent(type, x, y) {
 
     document.getElementById('canvas').appendChild(div);
     
-    // Set posisi awal (tengah komponen tepat di kursor)
+    // Atur posisi agar tengah komponen di kursor
     div.style.left = `${x - CONFIG.compSize / 2}px`;
     div.style.top = `${y - CONFIG.compSize / 2}px`;
 
-    // Pasang Event Listeners
     initDrag(div);
     initRotation(div);
     
-    // Hapus dengan klik kanan
+    // Hapus komponen dengan klik kanan
     div.oncontextmenu = (e) => {
         e.preventDefault();
         div.remove();
@@ -65,41 +67,36 @@ function createComponent(type, x, y) {
 }
 
 /**
- * LOGIKA SAKLAR
+ * INTERACTION LOGIC
  */
 window.toggleSwitch = (id) => {
     const el = document.getElementById(id);
     const btn = el.querySelector('.switch-btn');
-    const isOff = el.dataset.state === "off";
+    const isCurrentlyOff = el.dataset.state === "off";
     
-    el.dataset.state = isOff ? "on" : "off";
-    btn.innerText = isOff ? "ON" : "OFF";
-    btn.classList.toggle('switch-on', isOff);
+    el.dataset.state = isCurrentlyOff ? "on" : "off";
+    btn.innerText = isCurrentlyOff ? "ON" : "OFF";
+    btn.classList.toggle('switch-on', isCurrentlyOff);
     
     checkCircuit();
 };
 
-/**
- * LOGIKA GERAK (DRAG)
- */
 function initDrag(el) {
     el.onmousedown = function(e) {
-        // Abaikan jika klik tombol saklar atau gagang putar
         if (e.target.closest('.switch-btn') || e.target.closest('.rotate-handle')) return;
 
         el.style.zIndex = 1000;
-        const rect = el.getBoundingClientRect();
-        const shiftX = e.clientX - rect.left;
-        const shiftY = e.clientY - rect.top;
+        const shiftX = e.clientX - el.getBoundingClientRect().left;
+        const shiftY = e.clientY - el.getBoundingClientRect().top;
 
-        function moveAt(pageX, pageY) {
+        function onMouseMove(e) {
             const canvas = document.getElementById('canvas');
             const cRect = canvas.getBoundingClientRect();
             
-            let newX = pageX - shiftX - cRect.left;
-            let newY = pageY - shiftY - cRect.top;
+            let newX = e.clientX - shiftX - cRect.left;
+            let newY = e.clientY - shiftY - cRect.top;
 
-            // Logika Magnet
+            // Logika Magnet (Snapping)
             const others = document.querySelectorAll('.placed-comp');
             el.classList.remove('snapped');
 
@@ -111,13 +108,13 @@ function initDrag(el) {
                 const dx = Math.abs(newX - ox);
                 const dy = Math.abs(newY - oy);
 
-                // Snap Horizontal
+                // Snap Horizontal (Seri)
                 if (dx < CONFIG.snapThreshold && dy < 30) {
                     newY = oy;
                     newX = (newX > ox) ? ox + CONFIG.compSize : ox - CONFIG.compSize;
                     el.classList.add('snapped');
                 } 
-                // Snap Vertikal
+                // Snap Vertikal (Paralel)
                 else if (dy < CONFIG.snapThreshold && dx < 30) {
                     newX = ox;
                     newY = (newY > oy) ? oy + CONFIG.compSize : oy - CONFIG.compSize;
@@ -129,12 +126,7 @@ function initDrag(el) {
             el.style.top = `${newY}px`;
         }
 
-        function onMouseMove(e) {
-            moveAt(e.clientX, e.clientY);
-        }
-
         document.addEventListener('mousemove', onMouseMove);
-
         document.onmouseup = function() {
             document.removeEventListener('mousemove', onMouseMove);
             el.style.zIndex = 5;
@@ -142,61 +134,8 @@ function initDrag(el) {
             document.onmouseup = null;
         };
     };
-
     el.ondragstart = () => false;
 }
 
-/**
- * LOGIKA PUTAR (ROTATION)
- */
 function initRotation(el) {
     const handle = el.querySelector('.rotate-handle');
-    
-    handle.onmousedown = function(e) {
-        e.stopPropagation();
-        
-        function onRotate(moveEvent) {
-            const rect = el.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2;
-            const centerY = rect.top + rect.height / 2;
-            
-            const radians = Math.atan2(moveEvent.clientX - centerX, -(moveEvent.clientY - centerY));
-            const degrees = Math.round(radians * (180 / Math.PI));
-            
-            el.dataset.rotation = degrees;
-            el.style.transform = `rotate(${degrees}deg)`;
-        }
-
-        document.addEventListener('mousemove', onRotate);
-        document.addEventListener('mouseup', () => {
-            document.removeEventListener('mousemove', onRotate);
-            checkCircuit();
-        }, { once: true });
-    };
-}
-
-/**
- * LOGIKA ARUS LISTRIK
- */
-function checkCircuit() {
-    const comps = document.querySelectorAll('.placed-comp');
-    const statusEl = document.getElementById('flow-status');
-    
-    const hasBattery = Array.from(comps).some(c => c.dataset.type === 'battery');
-    const switches = Array.from(comps).filter(c => c.dataset.type === 'switch');
-    
-    // Syarat sederhana: Semua saklar yang ada di canvas harus ON
-    const allSwitchesOn = switches.every(s => s.dataset.state === 'on');
-    
-    // Arus mengalir jika ada baterai dan saklar oke
-    const isFlowing = hasBattery && allSwitchesOn && comps.length > 1;
-
-    comps.forEach(c => {
-        if (c.dataset.type === 'bulb') {
-            c.classList.toggle('bulb-on', isFlowing);
-        }
-    });
-
-    statusEl.innerText = isFlowing ? "Mengalir ⚡" : "Terputus";
-    statusEl.style.color = isFlowing ? "#00ff88" : "#ff4757";
-}
